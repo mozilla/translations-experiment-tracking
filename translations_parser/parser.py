@@ -3,7 +3,6 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import List
 
 import yaml
@@ -227,11 +226,3 @@ class TrainingParser:
             validation=list(self.validation),
             logs=self.indexed_logs,
         )
-
-
-def main():
-    with (Path(__file__).parent.parent / "samples" / "KZPjvTEiSmO--BXYpQCNPQ.txt").open("r") as f:
-        lines = (line.strip() for line in f.readlines())
-    parser = TrainingParser(lines)
-    parser.parse()
-    # TODO Use parser.output to publish somewhere
