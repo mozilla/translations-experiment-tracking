@@ -1,8 +1,10 @@
+import csv
 import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 import yaml
@@ -14,13 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 HEADER_RE = re.compile(r"(?<=\[)(?P<value>.+?)\] ")
-# fmt: off
-VALIDATION_RE = re.compile(
-    r"Ep\.[ :]+(?P<ep>\d+)[ :]+"
-    r"Up\.[ :]+(?P<up>\d+)[ :]+"
-    r"(?P<key>[\w-]+)[ :]+(?P<value>[\d\.]+)"
-)
-# fmt: on
+VALIDATION_RE = re.compile(r"Ep\.[ :]+(?P<ep>\d+)[ :]+Up\.[ :]+(?P<up>\d+)[ :]+(?P<key>[\w-]+)[ :]+(?P<value>[\d\.]+)")
 TRAINING_RE = re.compile(
     r"Ep\.[ :]+(?P<epoch>\d+)[ :]+"
     r"Up\.[ :]+(?P<up>\d+)[ :]+"
@@ -30,10 +26,12 @@ TRAINING_RE = re.compile(
     r"(?P<rate>[\d\.]+ words\/s)[ :]+"
     r"gNorm[ :]+(?P<gnorm>[\d\.]+)"
 )
+# Expected version of Marian for a clean parsing
+MARIAN_MAJOR, MARIAN_MINOR = 1, 10
 
 
 @dataclass
-class Training:
+class TrainingEpoch:
     epoch: str
     up: str
     sen: str
@@ -44,7 +42,7 @@ class Training:
 
 
 @dataclass
-class Validation:
+class ValidationEpoch:
     epoch: str
     up: str
     chrf: str
@@ -60,8 +58,8 @@ class TrainingLog:
     info: dict
     # Runtime configuration
     configuration: dict
-    training: List[Training]
-    validation: List[Validation]
+    training: List[TrainingEpoch]
+    validation: List[ValidationEpoch]
     # Dict of log lines indexed by their header (e.g. marian, data, memory)
     logs: dict
 
@@ -71,12 +69,15 @@ class TrainingParser:
         # Iterable reading logs lines
         self.logs_iter = logs_iter
         self.parsed = False
-        self.info = {}
         self.config = {}
+        self.indexed_logs = defaultdict(list)
         self.training = []
         # Dict mapping (epoch, up) to values parsed on multiple lines
         self.validation_entries = defaultdict(dict)
-        self.indexed_logs = defaultdict(list)
+        # Marian exection data
+        self.version = None
+        self.version_hash = None
+        self.release_date = None
 
     def get_headers(self, line):
         """
@@ -98,16 +99,13 @@ class TrainingParser:
         base, timestamp = values
         if base != "task":
             return
-        try:
-            return datetime.fromisoformat(timestamp.rstrip("Z"))
-        except ValueError:
-            return
+        return datetime.fromisoformat(timestamp.rstrip("Z"))
 
     def parse_training_log(self, headers, text):
         match = TRAINING_RE.match(text)
         if not match:
             return
-        self.training.append(Training(**match.groupdict()))
+        self.training.append(TrainingEpoch(**match.groupdict()))
 
     def parse_validation_log(self, headers, text):
         if ("valid",) not in headers:
@@ -116,7 +114,7 @@ class TrainingParser:
         if not match:
             return
         epoch, up, key, val = match.groups()
-        # Replace items keys to match Validation dataclass
+        # Replace items keys to match ValidationEpoch dataclass
         key = key.replace("-", "_")
         self.validation_entries[(epoch, up)].update({key: val})
 
@@ -149,11 +147,11 @@ class TrainingParser:
             headers, text = next(logs_iter)
 
         # Read Marian runtime logs
-        _, version, version_hash, release_date, *_ = text.split()
-        version = version.rstrip(";")
+        _, version, self.version_hash, self.release_date, *_ = text.split()
+        self.version = version.rstrip(";")
         major, minor = map(int, version.lstrip("v").split(".")[:2])
-        if (major, minor) > (1, 10):
-            logger.warning("Parsing logs from Marian > 1.10 may yield inconsistent results")
+        if (major, minor) > (MARIAN_MAJOR, MARIAN_MINOR):
+            logger.warning("Parsing logs from a newer version of Marian (> {MARIAN_MAJOR}.{MARIAN_MINOR})")
 
         # Read Marian execution description on the next lines
         desc = []
@@ -161,12 +159,6 @@ class TrainingParser:
             if ("marian",) not in headers:
                 break
             desc.append(text)
-        self.info = {
-            "version": version,
-            "version_hash": version_hash,
-            "release_date": release_date,
-            "description": " ".join(desc),
-        }
 
         # Try to parse all following config lines as YAML
         config_yaml = ""
@@ -176,13 +168,16 @@ class TrainingParser:
                 break
             config_yaml += f"{text}\n"
             headers, text = next(logs_iter)
-        self.config = yaml.safe_load(config_yaml)
+        try:
+            self.config = yaml.safe_load(config_yaml)
+        except Exception as e:
+            raise Exception(f"Invalid config section: {e}")
 
-        # Iterate until the end of file to find Training or validation logs
+        # Iterate until the end of file to find training or validation logs
         while True:
             if train := self.parse_training_log(headers, text):
                 self.training.append(train)
-            if val := self.parse_validation_log(headers, text):
+            elif val := self.parse_validation_log(headers, text):
                 self.validation.append(val)
             try:
                 headers, text = next(logs_iter)
@@ -196,6 +191,10 @@ class TrainingParser:
         self.parsed = True
 
     def parse(self):
+        """
+        Parse the log lines
+        A StopIteration can be raised if some required lines are never found
+        """
         try:
             self._parse()
         except StopIteration:
@@ -213,7 +212,7 @@ class TrainingParser:
             if diff:
                 logger.warning(f"Missing keys for validation entry ep. {epoch} up. {up}: {diff}")
                 continue
-            yield Validation(epoch=epoch, up=up, **parsed)
+            yield ValidationEpoch(epoch=epoch, up=up, **parsed)
 
     @property
     def output(self):
@@ -226,3 +225,27 @@ class TrainingParser:
             validation=list(self.validation),
             logs=self.indexed_logs,
         )
+
+    def csv_export(self):
+        output = Path(__file__).parent.parent / "output"
+        output.mkdir(exist_ok=True)
+        # Publish two files, validation.csv and training.csv
+        training_output = output / "training.csv"
+        if training_output.exists():
+            print(f"Output file {training_output} exists, skipping.")
+        else:
+            with open(training_output, "w") as f:
+                writer = csv.DictWriter(f, fieldnames=TrainingEpoch.__annotations__)
+                writer.writeheader()
+                for entry in self.training:
+                    writer.writerow(vars(entry))
+
+        validation_output = output / "validation.csv"
+        if validation_output.exists():
+            print(f"Output file {validation_output} exists, skipping.")
+        else:
+            with open(validation_output, "w") as f:
+                writer = csv.DictWriter(f, fieldnames=ValidationEpoch.__annotations__)
+                writer.writeheader()
+                for entry in self.validation:
+                    writer.writerow(vars(entry))
