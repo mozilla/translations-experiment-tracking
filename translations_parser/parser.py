@@ -4,7 +4,6 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import List
 
 import yaml
@@ -22,8 +21,8 @@ TRAINING_RE = re.compile(
     r"Up\.[ :]+(?P<up>\d+)[ :]+"
     r"Sen\.[ :]+(?P<sen>[\d,]+)[ :]+"
     r"Cost[ :]+(?P<cost>[\d.]+)[ :]+"
-    r"Time[ :]+(?P<time>[\d\.]+s)[ :]+"
-    r"(?P<rate>[\d\.]+ words\/s)[ :]+"
+    r"Time[ :]+(?P<time>[\d\.]+)s[ :]+"
+    r"(?P<rate>[\d\.]+) words\/s[ :]+"
     r"gNorm[ :]+(?P<gnorm>[\d\.]+)"
 )
 # Expected version of Marian for a clean parsing
@@ -105,7 +104,10 @@ class TrainingParser:
         match = TRAINING_RE.match(text)
         if not match:
             return
-        self.training.append(TrainingEpoch(**match.groupdict()))
+        values = match.groupdict()
+        # Transform sen value from 1,234,567 to 1234567
+        values["sen"] = values["sen"].replace(",", "")
+        self.training.append(TrainingEpoch(**values))
 
     def parse_validation_log(self, headers, text):
         if ("valid",) not in headers:
@@ -226,11 +228,10 @@ class TrainingParser:
             logs=self.indexed_logs,
         )
 
-    def csv_export(self):
-        output = Path(__file__).parent.parent / "output"
-        output.mkdir(exist_ok=True)
+    def csv_export(self, output_dir):
+        assert output_dir.is_dir(), "Output must be a valid directory"
         # Publish two files, validation.csv and training.csv
-        training_output = output / "training.csv"
+        training_output = output_dir / "training.csv"
         if training_output.exists():
             print(f"Output file {training_output} exists, skipping.")
         else:
@@ -240,7 +241,7 @@ class TrainingParser:
                 for entry in self.training:
                     writer.writerow(vars(entry))
 
-        validation_output = output / "validation.csv"
+        validation_output = output_dir / "validation.csv"
         if validation_output.exists():
             print(f"Output file {validation_output} exists, skipping.")
         else:

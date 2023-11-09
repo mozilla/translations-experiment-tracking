@@ -13,6 +13,13 @@ def get_args():
         type=Path,
         default=Path(__file__).parent.parent / "samples" / "KZPjvTEiSmO--BXYpQCNPQ.txt",
     )
+    parser.add_argument(
+        "--output-dir",
+        "-o",
+        help="Output directory to export training and validation data as CSV.",
+        type=Path,
+        default=Path(__file__).parent.parent / "output",
+    )
     return parser.parse_args()
 
 
@@ -22,4 +29,5 @@ def main():
         lines = (line.strip() for line in f.readlines())
     parser = TrainingParser(lines)
     parser.parse()
-    parser.csv_export()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    parser.csv_export(args.output_dir)
