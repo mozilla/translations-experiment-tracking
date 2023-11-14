@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 from translations_parser.parser import TrainingParser
+from translations_parser.publishers import CSVExport, WanDB
 
 
 def get_args():
@@ -20,14 +21,21 @@ def get_args():
         type=Path,
         default=Path(__file__).parent.parent / "output",
     )
+    parser.add_argument(
+        "--publish-wandb",
+        help="Weight & Biases project to publish parsed data.",
+        default=None,
+    )
     return parser.parse_args()
 
 
 def main():
     args = get_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     with args.input_file.open("r") as f:
         lines = (line.strip() for line in f.readlines())
-    parser = TrainingParser(lines)
+    publishers = [CSVExport(output_dir=args.output_dir)]
+    if args.publish_wandb:
+        publishers.append(WanDB(project=args.publish_wandb, logs_file=args.input_file))
+    parser = TrainingParser(lines, publishers=publishers)
     parser.parse()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    parser.csv_export(args.output_dir)

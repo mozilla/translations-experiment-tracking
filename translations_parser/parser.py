@@ -1,12 +1,13 @@
-import csv
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import List
 
 import yaml
+
+from translations_parser.data import TrainingEpoch, TrainingLog, ValidationEpoch
+from translations_parser.publishers import Publisher
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,54 +30,27 @@ TRAINING_RE = re.compile(
 MARIAN_MAJOR, MARIAN_MINOR = 1, 10
 
 
-@dataclass
-class TrainingEpoch:
-    epoch: str
-    up: str
-    sen: str
-    cost: str
-    time: int
-    rate: str
-    gnorm: str
-
-
-@dataclass
-class ValidationEpoch:
-    epoch: str
-    up: str
-    chrf: str
-    ce_mean_words: str
-    bleu_detok: str
-
-
-@dataclass
-class TrainingLog:
-    """Results from the parsing of a training log file"""
-
-    # Marian information
-    info: dict
-    # Runtime configuration
-    configuration: dict
-    training: List[TrainingEpoch]
-    validation: List[ValidationEpoch]
-    # Dict of log lines indexed by their header (e.g. marian, data, memory)
-    logs: dict
-
-
 class TrainingParser:
-    def __init__(self, logs_iter):
+    def __init__(self, logs_iter: Iterable[str], publishers: Sequence[Publisher]):
         # Iterable reading logs lines
         self.logs_iter = logs_iter
+        self._current_index = 0
         self.parsed = False
         self.config = {}
         self.indexed_logs = defaultdict(list)
+        # List of TrainingEpoch
         self.training = []
+        # List of ValidationEpoch
+        self.validation = []
         # Dict mapping (epoch, up) to values parsed on multiple lines
-        self.validation_entries = defaultdict(dict)
+        self._validation_entries = defaultdict(dict)
         # Marian exection data
         self.version = None
         self.version_hash = None
         self.release_date = None
+        self.description = None
+        # Data publication after parsing logs
+        self.publishers = publishers
 
     def get_headers(self, line):
         """
@@ -105,27 +79,33 @@ class TrainingParser:
         if not match:
             return
         values = match.groupdict()
-        # Transform sen value from 1,234,567 to 1234567
-        values["sen"] = values["sen"].replace(",", "")
-        self.training.append(TrainingEpoch(**values))
+        # Update sen value from 1,234,567 to 1_234_567 that Python interprets
+        values["sen"] = values["sen"].replace(",", "_")
+        # Transform values to match output types
+        values = {k: TrainingEpoch.__annotations__[k](v) for k, v in values.items()}
+        training_epoch = TrainingEpoch(**values)
+        self.training.append(training_epoch)
+        return training_epoch
 
     def parse_validation_log(self, headers, text):
-        if ("valid",) not in headers:
-            return
-        match = VALIDATION_RE.match(text)
-        if not match:
+        if ("valid",) not in headers or not (match := VALIDATION_RE.match(text)):
             return
         epoch, up, key, val = match.groups()
         # Replace items keys to match ValidationEpoch dataclass
         key = key.replace("-", "_")
-        self.validation_entries[(epoch, up)].update({key: val})
+        # Transform values to match output types
+        epoch, up = int(epoch), int(up)
+        val = ValidationEpoch.__annotations__[key](val)
+        self._validation_entries[(epoch, up)].update({key: val})
+        return (epoch, up)
 
     def _iter_log_entries(self):
-        for index, line in enumerate(self.logs_iter, start=1):
+        for line in self.logs_iter:
+            self._current_index += 1
             headers, position = self.get_headers(line)
             timestamp = next((ts for ts in map(self.check_task_timestamp_header, headers) if ts), None)
             if timestamp is None:
-                logger.debug(f"Skipping line {index} : Headers does not match [task <timestamp>]")
+                logger.debug(f"Skipping line {self._current_index} : Headers does not match [task <timestamp>]")
                 continue
             text = line[position:]
 
@@ -161,6 +141,7 @@ class TrainingParser:
             if ("marian",) not in headers:
                 break
             desc.append(text)
+        self.description = " ".join(desc)
 
         # Try to parse all following config lines as YAML
         config_yaml = ""
@@ -177,20 +158,30 @@ class TrainingParser:
 
         # Iterate until the end of file to find training or validation logs
         while True:
-            if train := self.parse_training_log(headers, text):
-                self.training.append(train)
-            elif val := self.parse_validation_log(headers, text):
-                self.validation.append(val)
             try:
-                headers, text = next(logs_iter)
+                try:
+                    training = self.parse_training_log(headers, text)
+                    if not training:
+                        self.parse_validation_log(headers, text)
+                except ValueError as e:
+                    logger.warning(f"Line {self._current_index} could not be stored: {e}.")
+                    headers, text = next(logs_iter)
+                finally:
+                    headers, text = next(logs_iter)
             except StopIteration:
                 break
+
+        # Build validation epochs from matched log entries
+        for validation in self.build_validation_epochs():
+            self.validation.append(validation)
 
         count = sum(len(vals) for vals in self.indexed_logs.values())
         logger.info(f"Successfully parsed {count} lines")
         logger.info(f"Found {len(self.training)} training entries")
-        logger.info(f"Found {len(list(self.validation))} validation entries")
+        logger.info(f"Found {len(self.validation)} validation entries")
         self.parsed = True
+        for publisher in self.publishers:
+            self.publish(publisher)
 
     def parse(self):
         """
@@ -202,13 +193,12 @@ class TrainingParser:
         except StopIteration:
             raise ValueError("Logs file ended up unexpectedly")
 
-    @property
-    def validation(self):
+    def build_validation_epochs(self):
         """
         Build validation entries from complete entries
         as validation logs are displayed on multiple lines
         """
-        for (epoch, up), parsed in self.validation_entries.items():
+        for (epoch, up), parsed in self._validation_entries.items():
             # Ensure required keys have been parsed
             diff = set(("chrf", "ce_mean_words", "bleu_detok")) - set(parsed.keys())
             if diff:
@@ -221,32 +211,23 @@ class TrainingParser:
         if not self.parsed:
             raise Exception("Please run the parser before reading the output")
         return TrainingLog(
-            info=self.info,
             configuration=self.config,
             training=self.training,
             validation=list(self.validation),
             logs=self.indexed_logs,
         )
 
-    def csv_export(self, output_dir):
-        assert output_dir.is_dir(), "Output must be a valid directory"
-        # Publish two files, validation.csv and training.csv
-        training_output = output_dir / "training.csv"
-        if training_output.exists():
-            print(f"Output file {training_output} exists, skipping.")
-        else:
-            with open(training_output, "w") as f:
-                writer = csv.DictWriter(f, fieldnames=TrainingEpoch.__annotations__)
-                writer.writeheader()
-                for entry in self.training:
-                    writer.writerow(vars(entry))
-
-        validation_output = output_dir / "validation.csv"
-        if validation_output.exists():
-            print(f"Output file {validation_output} exists, skipping.")
-        else:
-            with open(validation_output, "w") as f:
-                writer = csv.DictWriter(f, fieldnames=ValidationEpoch.__annotations__)
-                writer.writeheader()
-                for entry in self.validation:
-                    writer.writerow(vars(entry))
+    def publish(self, publisher):
+        logger.info(f"Publishing data using {publisher.__class__.__name__}")
+        publisher.configure(self.output)
+        if self.training:
+            try:
+                publisher.publish_training(self.training)
+            except Exception as e:
+                logger.warning(f"Failed publishing training data: {e}")
+        if self.validation:
+            try:
+                publisher.publish_validation(self.validation)
+            except Exception as e:
+                logger.warning(f"Failed publishing validation data: {e}")
+        publisher.close()
