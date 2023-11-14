@@ -219,15 +219,5 @@ class TrainingParser:
 
     def publish(self, publisher):
         logger.info(f"Publishing data using {publisher.__class__.__name__}")
-        publisher.configure(self.output)
-        if self.training:
-            try:
-                publisher.publish_training(self.training)
-            except Exception as e:
-                logger.warning(f"Failed publishing training data: {e}")
-        if self.validation:
-            try:
-                publisher.publish_validation(self.validation)
-            except Exception as e:
-                logger.warning(f"Failed publishing validation data: {e}")
+        publisher.publish(self.output)
         publisher.close()
