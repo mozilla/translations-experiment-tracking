@@ -3,6 +3,7 @@ import logging
 from abc import ABC, abstractmethod
 
 import wandb
+
 from translations_parser.data import TrainingEpoch, TrainingLog, ValidationEpoch
 
 logging.basicConfig(
