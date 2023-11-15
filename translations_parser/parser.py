@@ -174,24 +174,7 @@ class TrainingParser:
         # Build validation epochs from matched log entries
         for validation in self.build_validation_epochs():
             self.validation.append(validation)
-
-        count = sum(len(vals) for vals in self.indexed_logs.values())
-        logger.info(f"Successfully parsed {count} lines")
-        logger.info(f"Found {len(self.training)} training entries")
-        logger.info(f"Found {len(self.validation)} validation entries")
         self.parsed = True
-        for publisher in self.publishers:
-            self.publish(publisher)
-
-    def parse(self):
-        """
-        Parse the log lines
-        A StopIteration can be raised if some required lines are never found
-        """
-        try:
-            self._parse()
-        except StopIteration:
-            raise ValueError("Logs file ended up unexpectedly")
 
     def build_validation_epochs(self):
         """
@@ -221,3 +204,21 @@ class TrainingParser:
         logger.info(f"Publishing data using {publisher.__class__.__name__}")
         publisher.publish(self.output)
         publisher.close()
+
+    def run(self):
+        """
+        Parse the log lines.
+        """
+        try:
+            self._parse()
+        except StopIteration:
+            # A StopIteration can be raised if some required lines are never found.
+            raise ValueError("Logs file ended up unexpectedly")
+
+        count = sum(len(vals) for vals in self.indexed_logs.values())
+        logger.info(f"Successfully parsed {count} lines")
+        logger.info(f"Found {len(self.training)} training entries")
+        logger.info(f"Found {len(self.validation)} validation entries")
+
+        for publisher in self.publishers:
+            self.publish(publisher)

@@ -50,9 +50,9 @@ class CSVExport(Publisher):
 
 
 class WanDB(Publisher):
-    def __init__(self, project, **extra_metadata):
+    def __init__(self, project, **extra_kwargs):
         self.project = project
-        self.extra_metadata = extra_metadata
+        self.extra_kwargs = extra_kwargs
 
     def publish(self, training_log):
         # Weight & Biases requires to publish data ordered by epoch
@@ -61,19 +61,20 @@ class WanDB(Publisher):
             logger.warning("No data to push, skipping.")
             return
 
-        # Start a new W&B run and publish data
+        config = training_log.configuration
+        config.update(self.extra_kwargs.pop("config", {}))
+
+        # Start a W&B run and publish data for training and validation jobs
         self.wandb = wandb.init(
             project=self.project,
-            config={
-                **self.extra_metadata,
-                **training_log.configuration,
-            },
+            config=config,
+            **self.extra_kwargs,
         )
         for d in data:
-            if isinstance(d, TrainingEpoch):
-                wandb.log(step=d.up, data={"training cost": d.cost})
-            elif isinstance(d, ValidationEpoch):
-                wandb.log(step=d.up, data={"validation CE (mean words)": d.ce_mean_words})
+            epoch = vars(d)
+            step = epoch.pop("up")
+            for key, val in epoch.items():
+                wandb.log(step=step, data={key: val})
 
     def close(self):
         self.wandb.finish()

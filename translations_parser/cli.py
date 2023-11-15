@@ -22,8 +22,18 @@ def get_args():
         default=Path(__file__).parent.parent / "output",
     )
     parser.add_argument(
-        "--publish-wandb",
-        help="Weight & Biases project to publish parsed data.",
+        "--wandb-project",
+        help="Publish the training run to a Weight & Biases project.",
+        default=None,
+    )
+    parser.add_argument(
+        "--wandb-group",
+        help="Add the training run to a Weight & Biases group e.g. by language pair or experiment.",
+        default=None,
+    )
+    parser.add_argument(
+        "--wandb-run-name",
+        help="Use a custom name for the Weight & Biases run.",
         default=None,
     )
     return parser.parse_args()
@@ -35,7 +45,17 @@ def main():
     with args.input_file.open("r") as f:
         lines = (line.strip() for line in f.readlines())
     publishers = [CSVExport(output_dir=args.output_dir)]
-    if args.publish_wandb:
-        publishers.append(WanDB(project=args.publish_wandb, logs_file=args.input_file))
+    if args.wandb_project:
+        publishers.append(
+            WanDB(
+                project=args.wandb_project,
+                group=args.wandb_group,
+                tags=["cli"],
+                name=args.wandb_run_name,
+                config={
+                    "logs_file": args.input_file,
+                },
+            )
+        )
     parser = TrainingParser(lines, publishers=publishers)
-    parser.parse()
+    parser.run()
