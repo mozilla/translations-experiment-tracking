@@ -1,6 +1,7 @@
 import csv
 import logging
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import wandb
 
@@ -76,6 +77,11 @@ class WanDB(Publisher):
             step = epoch.pop("up")
             for key, val in epoch.items():
                 wandb.log(step=step, data={key: val})
+
+        # Store runtime logs as the main log artifact
+        # This will be overwritten in case an unhandled exception occurs
+        with (Path(self.wandb.dir) / "output.log").open("w") as f:
+            f.write(training_log.logs_str)
 
     def close(self):
         self.wandb.finish()

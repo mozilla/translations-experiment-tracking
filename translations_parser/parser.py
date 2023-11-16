@@ -48,6 +48,7 @@ class TrainingParser:
         self.version = None
         self.version_hash = None
         self.release_date = None
+        self.run_date = None
         self.description = None
         # Data publication after parsing logs
         self.publishers = publishers
@@ -107,13 +108,15 @@ class TrainingParser:
             if timestamp is None:
                 logger.debug(f"Skipping line {self._current_index} : Headers does not match [task <timestamp>]")
                 continue
+            elif self.run_date is None:
+                self.run_date = timestamp
             text = line[position:]
 
             # Record logs depending on Marian headers
             if len(headers) >= 2:
                 # First is task timestamp, second is marian timestamp
                 _, _, *marian_tags = headers
-                tag = "_".join(*marian_tags) if marian_tags else "_default"
+                tag = "_".join(*marian_tags) if marian_tags else "_"
                 self.indexed_logs[tag].append(text)
 
             yield headers, text
@@ -194,6 +197,7 @@ class TrainingParser:
         if not self.parsed:
             raise Exception("Please run the parser before reading the output")
         return TrainingLog(
+            run_date=self.run_date,
             configuration=self.config,
             training=self.training,
             validation=list(self.validation),
