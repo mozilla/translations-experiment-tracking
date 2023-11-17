@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 from translations_parser.parser import TrainingParser
+from translations_parser.publishers import CSVExport, WandB
 
 
 def get_args():
@@ -20,14 +21,41 @@ def get_args():
         type=Path,
         default=Path(__file__).parent.parent / "output",
     )
+    parser.add_argument(
+        "--wandb-project",
+        help="Publish the training run to a Weight & Biases project.",
+        default=None,
+    )
+    parser.add_argument(
+        "--wandb-group",
+        help="Add the training run to a Weight & Biases group e.g. by language pair or experiment.",
+        default=None,
+    )
+    parser.add_argument(
+        "--wandb-run-name",
+        help="Use a custom name for the Weight & Biases run.",
+        default=None,
+    )
     return parser.parse_args()
 
 
 def main():
     args = get_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     with args.input_file.open("r") as f:
         lines = (line.strip() for line in f.readlines())
-    parser = TrainingParser(lines)
-    parser.parse()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    parser.csv_export(args.output_dir)
+    publishers = [CSVExport(output_dir=args.output_dir)]
+    if args.wandb_project:
+        publishers.append(
+            WandB(
+                project=args.wandb_project,
+                group=args.wandb_group,
+                tags=["cli"],
+                name=args.wandb_run_name,
+                config={
+                    "logs_file": args.input_file,
+                },
+            )
+        )
+    parser = TrainingParser(lines, publishers=publishers)
+    parser.run()

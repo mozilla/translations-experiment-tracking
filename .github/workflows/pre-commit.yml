@@ -18,4 +18,4 @@ jobs:
     - name: install pre-commit
       run: pip install pre-commit
     - name: run pre-commit
-      run: pre-commit run -a
+      run: pre-commit run -a --show-diff-on-failure
