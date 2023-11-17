@@ -51,7 +51,7 @@ class CSVExport(Publisher):
             self.write_data(validation_output, training_log.validation, ValidationEpoch)
 
 
-class WanDB(Publisher):
+class WandB(Publisher):
     def __init__(self, project, **extra_kwargs):
         self.project = project
         self.extra_kwargs = extra_kwargs

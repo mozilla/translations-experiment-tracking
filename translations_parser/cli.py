@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 
 from translations_parser.parser import TrainingParser
-from translations_parser.publishers import CSVExport, WanDB
+from translations_parser.publishers import CSVExport, WandB
 
 
 def get_args():
@@ -47,7 +47,7 @@ def main():
     publishers = [CSVExport(output_dir=args.output_dir)]
     if args.wandb_project:
         publishers.append(
-            WanDB(
+            WandB(
                 project=args.wandb_project,
                 group=args.wandb_group,
                 tags=["cli"],
