@@ -148,7 +148,9 @@ class TrainingParser:
         self.version = version.rstrip(";")
         major, minor = map(int, version.lstrip("v").split(".")[:2])
         if (major, minor) > (MARIAN_MAJOR, MARIAN_MINOR):
-            logger.warning("Parsing logs from a newer version of Marian (> {MARIAN_MAJOR}.{MARIAN_MINOR})")
+            logger.warning(
+                f"Parsing logs from a newer version of Marian ({major}.{minor} > {MARIAN_MAJOR}.{MARIAN_MINOR})"
+            )
 
         # Read Marian execution description on the next lines
         desc = []

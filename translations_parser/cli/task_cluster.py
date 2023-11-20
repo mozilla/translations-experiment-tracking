@@ -80,6 +80,6 @@ def main():
     parser = TrainingParser(
         lines,
         publishers=publishers,
-        log_filter=task_cluster_log_filter,
+        # log_filter=task_cluster_log_filter,
     )
     parser.run()

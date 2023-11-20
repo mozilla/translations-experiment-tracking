@@ -32,7 +32,17 @@ $ pip install .
 
 Run the parser with the local sample:
 ```sh
-$ parse_training_logs
+$ parse_tc_logs -i samples/<log_file>
+```
+
+Publish data to Weight & Biases:
+```sh
+$ parse_tc_logs -i samples/<log_file> --wandb-project <project> --wandb-group=<group> --wandb-run-name=<run>
+```
+
+Run the parser on a directory containing experiments and publis to Weight & Biases:
+```sh
+$ parse_experiment_dir -d models
 ```
 
 ## Development

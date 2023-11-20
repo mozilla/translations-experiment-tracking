@@ -1,3 +1,5 @@
 [flake8]
 max-line-length = 120
 exclude=.cache,.eggs,.git
+E203 whitespace before ':'
+ignore = E203
