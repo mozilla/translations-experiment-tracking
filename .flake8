@@ -1,5 +1,5 @@
 [flake8]
 max-line-length = 120
 exclude=.cache,.eggs,.git
-E203 whitespace before ':'
+# E203 whitespace before ':' is incompatible with black
 ignore = E203
