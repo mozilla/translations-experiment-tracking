@@ -28,7 +28,7 @@ class CSVExport(Publisher):
         assert output_dir.is_dir(), "Output must be a valid directory"
         self.output_dir = output_dir
 
-    def write_data(output, entries, dataclass):
+    def write_data(self, output, entries, dataclass):
         if not entries:
             logger.warning(f"No {dataclass.__name__} entry, skipping.")
         with open(output, "w") as f:
