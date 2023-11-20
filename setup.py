@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import os.path
 
-from setuptools import setup
+from setuptools import find_packages, setup
 
 
 def requirements(path):
@@ -28,7 +28,7 @@ setup(
     author_email="team@teklia.com",
     python_requires=">=3.10",
     install_requires=requirements("requirements.txt"),
-    packages=["translations_parser"],
+    packages=find_packages(),
     include_package_data=True,
     entry_points={
         "console_scripts": [
