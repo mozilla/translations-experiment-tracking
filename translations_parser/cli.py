@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from translations_parser.parser import TrainingParser
@@ -39,6 +40,24 @@ def get_args():
     return parser.parse_args()
 
 
+def task_cluster_log_filter(headers):
+    """
+    Check TC log contain a valid task header ('task', <timestamp>)
+    """
+    for values in headers:
+        if not values or len(values) != 2:
+            continue
+        base, timestamp = values
+        if base != "task":
+            continue
+        try:
+            datetime.fromisoformat(timestamp.rstrip("Z"))
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def main():
     args = get_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -57,5 +76,10 @@ def main():
                 },
             )
         )
-    parser = TrainingParser(lines, publishers=publishers)
+
+    parser = TrainingParser(
+        lines,
+        publishers=publishers,
+        log_filter=task_cluster_log_filter,
+    )
     parser.run()

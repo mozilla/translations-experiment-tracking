@@ -3,6 +3,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import datetime
+from typing import Callable
 
 import yaml
 
@@ -31,9 +32,11 @@ MARIAN_MAJOR, MARIAN_MINOR = 1, 10
 
 
 class TrainingParser:
-    def __init__(self, logs_iter: Iterable[str], publishers: Sequence[Publisher]):
+    def __init__(self, logs_iter: Iterable[str], publishers: Sequence[Publisher], log_filter: Callable = None):
         # Iterable reading logs lines
         self.logs_iter = logs_iter
+        # Function to exclude log lines depending on the headers
+        self.log_filter = log_filter
         self._current_index = 0
         self.parsed = False
         self.config = {}
@@ -63,17 +66,26 @@ class TrainingParser:
             return ((), None)
         return ([tuple(m.group("value").split()) for m in matches], matches[-1].span()[-1])
 
-    def check_task_timestamp_header(self, values):
+    def get_timestamp(self, headers):
         """
-        Check a header value matching ('task', <timestamp>)
-        and return the deduced timestamp
+        Look for a timestamp in header tags.
+        Returns the timestamp if found, None otherwise.
         """
-        if not values or len(values) != 2:
-            return
-        base, timestamp = values
-        if base != "task":
-            return
-        return datetime.fromisoformat(timestamp.rstrip("Z"))
+        for values in headers:
+            if len(values) != 2:
+                continue
+            base, timestamp = values
+            # TC adds a timestamp after the task header
+            if base == "task":
+                try:
+                    return datetime.fromisoformat(timestamp.rstrip("Z"))
+                except ValueError:
+                    pass
+            # Marian timestamp is composed of two values, one for date and one for hour precision
+            try:
+                return datetime.fromisoformat("T".join(values))
+            except ValueError:
+                pass
 
     def parse_training_log(self, headers, text):
         match = TRAINING_RE.match(text)
@@ -104,12 +116,12 @@ class TrainingParser:
         for line in self.logs_iter:
             self._current_index += 1
             headers, position = self.get_headers(line)
-            timestamp = next((ts for ts in map(self.check_task_timestamp_header, headers) if ts), None)
-            if timestamp is None:
-                logger.debug(f"Skipping line {self._current_index} : Headers does not match [task <timestamp>]")
+            if self.log_filter and not self.log_filter(headers):
+                logger.debug(f"Skipping line {self._current_index} : Headers does not match the filter")
                 continue
             elif self.run_date is None:
-                self.run_date = timestamp
+                # Try to fill run date from log headers
+                self.run_date = self.get_timestamp(headers)
             text = line[position:]
 
             # Record logs depending on Marian headers
