@@ -28,6 +28,12 @@ def get_args():
         default=None,
     )
     parser.add_argument(
+        "--wandb-artifacts",
+        help="Directory containing training artifacts to publish on Weight & Biases.",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
         "--wandb-group",
         help="Add the training run to a Weight & Biases group e.g. by language pair or experiment.",
         default=None,
@@ -68,6 +74,7 @@ def main():
         publishers.append(
             WandB(
                 project=args.wandb_project,
+                artifacts=args.wandb_artifacts,
                 group=args.wandb_group,
                 tags=["cli"],
                 name=args.wandb_run_name,
@@ -80,6 +87,6 @@ def main():
     parser = TrainingParser(
         lines,
         publishers=publishers,
-        # log_filter=task_cluster_log_filter,
+        log_filter=task_cluster_log_filter,
     )
     parser.run()

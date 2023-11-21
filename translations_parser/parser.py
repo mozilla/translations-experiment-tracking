@@ -32,7 +32,13 @@ MARIAN_MAJOR, MARIAN_MINOR = 1, 10
 
 
 class TrainingParser:
-    def __init__(self, logs_iter: Iterable[str], publishers: Sequence[Publisher], log_filter: Callable = None):
+    def __init__(
+        self,
+        logs_iter: Iterable[str],
+        publishers: Sequence[Publisher],
+        log_filter: Callable = None,
+        skip_marian_context: bool = False,
+    ):
         # Iterable reading logs lines
         self.logs_iter = logs_iter
         # Function to exclude log lines depending on the headers
@@ -48,6 +54,7 @@ class TrainingParser:
         # Dict mapping (epoch, up) to values parsed on multiple lines
         self._validation_entries = defaultdict(dict)
         # Marian exection data
+        self.skip_marian_context = skip_marian_context
         self.version = None
         self.version_hash = None
         self.release_date = None
@@ -138,40 +145,43 @@ class TrainingParser:
             raise Exception("The parser already ran.")
         logs_iter = self._iter_log_entries()
 
-        # Consume first lines until we get the Marian header
-        headers = []
-        while ("marian",) not in headers:
+        if self.skip_marian_context:
             headers, text = next(logs_iter)
-
-        # Read Marian runtime logs
-        _, version, self.version_hash, self.release_date, *_ = text.split()
-        self.version = version.rstrip(";")
-        major, minor = map(int, version.lstrip("v").split(".")[:2])
-        if (major, minor) > (MARIAN_MAJOR, MARIAN_MINOR):
-            logger.warning(
-                f"Parsing logs from a newer version of Marian ({major}.{minor} > {MARIAN_MAJOR}.{MARIAN_MINOR})"
-            )
-
-        # Read Marian execution description on the next lines
-        desc = []
-        for headers, text in logs_iter:
-            if ("marian",) not in headers:
-                break
-            desc.append(text)
-        self.description = " ".join(desc)
-
-        # Try to parse all following config lines as YAML
-        config_yaml = ""
-        while ("config",) in headers:
-            if "Model is being created" in text:
+        else:
+            # Consume first lines until we get the Marian header
+            headers = []
+            while ("marian",) not in headers:
                 headers, text = next(logs_iter)
-                break
-            config_yaml += f"{text}\n"
-            headers, text = next(logs_iter)
-        try:
-            self.config = yaml.safe_load(config_yaml)
-        except Exception as e:
-            raise Exception(f"Invalid config section: {e}")
+
+            # Read Marian runtime logs
+            _, version, self.version_hash, self.release_date, *_ = text.split()
+            self.version = version.rstrip(";")
+            major, minor = map(int, version.lstrip("v").split(".")[:2])
+            if (major, minor) > (MARIAN_MAJOR, MARIAN_MINOR):
+                logger.warning(
+                    f"Parsing logs from a newer version of Marian ({major}.{minor} > {MARIAN_MAJOR}.{MARIAN_MINOR})"
+                )
+
+            # Read Marian execution description on the next lines
+            desc = []
+            for headers, text in logs_iter:
+                if ("marian",) not in headers:
+                    break
+                desc.append(text)
+            self.description = " ".join(desc)
+
+            # Try to parse all following config lines as YAML
+            config_yaml = ""
+            while ("config",) in headers:
+                if "Model is being created" in text:
+                    headers, text = next(logs_iter)
+                    break
+                config_yaml += f"{text}\n"
+                headers, text = next(logs_iter)
+            try:
+                self.config = yaml.safe_load(config_yaml)
+            except Exception as e:
+                raise Exception(f"Invalid config section: {e}")
 
         # Iterate until the end of file to find training or validation logs
         while True:
