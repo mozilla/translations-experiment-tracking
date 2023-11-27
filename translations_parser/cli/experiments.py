@@ -99,7 +99,7 @@ def publish_group_logs(project, group, logs_dir):
         group=group,
         name="group_logs",
     )
-    artifact = wandb.Artifact(name="logs", type="logs")
+    artifact = wandb.Artifact(name=group, type="logs")
     artifact.add_dir(local_path=logs_dir)
     run.log_artifact(artifact)
     run.finish()
