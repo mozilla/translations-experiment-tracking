@@ -52,7 +52,12 @@ class ExperimentsParser(TrainingParser):
                     continue
                 else:
                     metric = MetricEpoch(up=up)
-                    setattr(metric, metrics_file.stem, value)
+                    setattr(
+                        metric,
+                        # Always prefix metrics to avoid names conflict
+                        f"[metric] {metrics_file.stem}",
+                        value,
+                    )
                     self.training.append(metric)
                     up += 1
         return super().run()
