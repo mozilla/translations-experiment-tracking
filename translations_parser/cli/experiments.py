@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+from dataclasses import dataclass
 from itertools import groupby
 from pathlib import Path
 
@@ -14,6 +15,47 @@ logging.basicConfig(
     format="[%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MetricEpoch:
+    """
+    A generic metric extracted from .metric files
+    """
+
+    up: int
+
+
+class ExperimentsParser(TrainingParser):
+    def __init__(self, *args, metrics_dir=None, **kwargs):
+        self.metrics_dir = metrics_dir
+        return super().__init__(*args, **kwargs)
+
+    def run(self):
+        """
+        Add experiment metrics to the training data of the parser
+        so they are also reported by the WandB publisher.
+        """
+        if not self.metrics_dir:
+            return super().run()
+
+        # Add Metrics to the published output based on the name of the file
+        for metrics_file in self.metrics_dir.glob("*.metrics"):
+            with metrics_file.open("r") as f:
+                lines = f.readlines()
+            up = 1
+            for line in lines:
+                # Ignore lines that does not contain a float value
+                try:
+                    value = float(line)
+                except ValueError:
+                    continue
+                else:
+                    metric = MetricEpoch(up=up)
+                    setattr(metric, metrics_file.stem, value)
+                    self.training.append(metric)
+                    up += 1
+        return super().run()
 
 
 def get_args():
@@ -31,23 +73,15 @@ def get_args():
 def parse_experiment(logs_file, project, group, name, metrics_dir=None):
     with logs_file.open("r") as f:
         lines = (line.strip() for line in f.readlines())
-    extra_kwargs = {}
-    if metrics_dir:
-        extra_kwargs.update(
-            {
-                "artifacts": metrics_dir,
-                "artifacts_name": "metrics",
-            }
-        )
-    parser = TrainingParser(
+    parser = ExperimentsParser(
         lines,
+        metrics_dir=metrics_dir,
         publishers=[
             WandB(
                 project=project,
                 name=name,
                 group=group,
                 config={"logs_file": logs_file},
-                **extra_kwargs,
             )
         ],
         # There is no Marian context in valid.log files
