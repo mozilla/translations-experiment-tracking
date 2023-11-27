@@ -89,8 +89,6 @@ def parse_experiment(logs_file, project, group, name, metrics_dir=None):
                 config={"logs_file": logs_file},
             )
         ],
-        # There is no Marian context in valid.log files
-        skip_marian_context=name.endswith("_valid"),
     )
     parser.run()
 
@@ -110,15 +108,11 @@ def publish_group_logs(project, group, logs_dir):
 def main():
     args = get_args()
     directory = args.directory
-    file_groups = {path: list(files) for path, files in groupby(directory.glob("**/*.log"), lambda path: path.parent)}
-    total_count = len(file_groups)
-    # Exclude groups missing valid or train log files
+    # Ignore files with a different name than "train.log"
     file_groups = {
-        path: files
-        for path, files in file_groups.items()
-        if ["train.log", "valid.log"] == sorted(f.name for f in files)
+        path: list(files) for path, files in groupby(directory.glob("**/train.log"), lambda path: path.parent)
     }
-    logger.info(f"Reading {len(file_groups)} training data (over {total_count} folders)")
+    logger.info(f"Reading {len(file_groups)} train.log data")
     prefix = os.path.commonprefix([path.parts for path in file_groups])
 
     last_index = None
@@ -148,10 +142,6 @@ def main():
 
         # Publish a run for each file inside that group
         for index, file in enumerate(files, start=1):
-            if file.name == "train.log":
-                name += "_train"
-            elif file.name == "valid.log":
-                name += "_valid"
             # Also publish metric files when available
             metrics_dir = Path("/".join([*prefix, project, group, "evaluation", base_name]))
             if not metrics_dir.is_dir():

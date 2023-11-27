@@ -53,8 +53,9 @@ class TrainingParser:
         self.validation = []
         # Dict mapping (epoch, up) to values parsed on multiple lines
         self._validation_entries = defaultdict(dict)
-        # Marian exection data
+        # Option to read logs directly (skip check for Marian context)
         self.skip_marian_context = skip_marian_context
+        # Marian exection data
         self.version = None
         self.version_hash = None
         self.release_date = None
