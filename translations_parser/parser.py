@@ -106,6 +106,11 @@ class TrainingParser:
         values = {k: TrainingEpoch.__annotations__[k](v) for k, v in values.items()}
         training_epoch = TrainingEpoch(**values)
         self.training.append(training_epoch)
+        for publisher in self.publishers:
+            try:
+                publisher.handle_training(training_epoch)
+            except Exception as e:
+                logger.error(f"Error publishing training epoch using {publisher.__class__.__name__}: {e}")
         return training_epoch
 
     def parse_validation_log(self, headers, text):
@@ -117,8 +122,19 @@ class TrainingParser:
         # Transform values to match output types
         epoch, up = int(epoch), int(up)
         val = ValidationEpoch.__annotations__[key](val)
-        self._validation_entries[(epoch, up)].update({key: val})
-        return (epoch, up)
+        entry = self._validation_entries[(epoch, up)]
+        entry[key] = val
+        # Build a validation epochs from multiple lines
+        if not (set(("chrf", "ce_mean_words", "bleu_detok")) - set(entry.keys())):
+            validation_epoch = ValidationEpoch(epoch=epoch, up=up, **entry)
+            self.validation.append(validation_epoch)
+            for publisher in self.publishers:
+                try:
+                    publisher.handle_validation(validation_epoch)
+                except Exception as e:
+                    logger.error(f"Error publishing validation epoch using {publisher.__class__.__name__}: {e}")
+            del entry
+            return validation_epoch
 
     def _iter_log_entries(self):
         for line in self.logs_iter:
@@ -187,6 +203,8 @@ class TrainingParser:
                 raise Exception(f"Invalid config section: {e}")
 
         # Iterate until the end of file to find training or validation logs
+        for publisher in self.publishers:
+            publisher.open(self)
         while True:
             try:
                 try:
@@ -195,29 +213,22 @@ class TrainingParser:
                         self.parse_validation_log(headers, text)
                 except ValueError as e:
                     logger.warning(f"Line {self._current_index} could not be stored: {e}.")
-                    headers, text = next(logs_iter)
                 finally:
                     headers, text = next(logs_iter)
             except StopIteration:
                 break
 
-        # Build validation epochs from matched log entries
-        for validation in self.build_validation_epochs():
-            self.validation.append(validation)
+        # Report incomplete validation logs
+        if self._validation_entries.keys():
+            logger.warning("Some validation data is incomplete with the following epoch/up couples:")
+            for epoch, up in self._validation_entries.keys():
+                logger.warning(f"* Ep. {epoch}, Up. {up}")
+
         self.parsed = True
 
-    def build_validation_epochs(self):
-        """
-        Build validation entries from complete entries
-        as validation logs are displayed on multiple lines
-        """
-        for (epoch, up), parsed in self._validation_entries.items():
-            # Ensure required keys have been parsed
-            diff = set(("chrf", "ce_mean_words", "bleu_detok")) - set(parsed.keys())
-            if diff:
-                logger.warning(f"Missing keys for validation entry ep. {epoch} up. {up}: {diff}")
-                continue
-            yield ValidationEpoch(epoch=epoch, up=up, **parsed)
+    @property
+    def logs_str(self):
+        return "\n".join("".join(f"[{key}] {val}\n" for val in values) for key, values in self.indexed_logs.items())
 
     @property
     def output(self):
@@ -230,11 +241,6 @@ class TrainingParser:
             validation=list(self.validation),
             logs=self.indexed_logs,
         )
-
-    def publish(self, publisher):
-        logger.info(f"Publishing data using {publisher.__class__.__name__}")
-        publisher.publish(self.output)
-        publisher.close()
 
     def run(self):
         """
@@ -252,4 +258,9 @@ class TrainingParser:
         logger.info(f"Found {len(self.validation)} validation entries")
 
         for publisher in self.publishers:
-            self.publish(publisher)
+            try:
+                publisher.publish(self.output)
+            except Exception as e:
+                logger.error(f"Error publishing data using {publisher.__class__.__name__}: {e}")
+            finally:
+                publisher.close()
