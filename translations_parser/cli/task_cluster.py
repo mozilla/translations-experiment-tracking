@@ -1,4 +1,5 @@
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -8,12 +9,19 @@ from translations_parser.publishers import CSVExport, WandB
 
 def get_args():
     parser = argparse.ArgumentParser(description="Extract information from Marian execution on Task Cluster")
-    parser.add_argument(
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument(
         "--input-file",
         "-i",
         help="Path to the Task Cluster log file.",
         type=Path,
         default=Path(__file__).parent.parent / "samples" / "KZPjvTEiSmO--BXYpQCNPQ.txt",
+    )
+    input_group.add_argument(
+        "--from-stream",
+        "-s",
+        help="Read lines from stdin stream.",
+        action="store_true",
     )
     parser.add_argument(
         "--output-dir",
@@ -67,8 +75,11 @@ def task_cluster_log_filter(headers):
 def main():
     args = get_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    with args.input_file.open("r") as f:
-        lines = (line.strip() for line in f.readlines())
+    if args.from_stream:
+        lines = sys.stdin
+    else:
+        with args.input_file.open("r") as f:
+            lines = (line.strip() for line in f.readlines())
     publishers = [CSVExport(output_dir=args.output_dir)]
     if args.wandb_project:
         publishers.append(

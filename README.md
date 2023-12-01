@@ -35,6 +35,11 @@ Run the parser with the local sample:
 $ parse_tc_logs -i samples/<log_file>
 ```
 
+Simulate reading logs from a process:
+```sh
+./samples/simulate_process.py | parse_tc_logs -s
+```
+
 Publish data to Weight & Biases:
 ```sh
 $ parse_tc_logs -i samples/<log_file> --wandb-project <project> --wandb-group=<group> --wandb-run-name=<run>
