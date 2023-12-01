@@ -11,7 +11,7 @@ from translations_parser.data import TrainingEpoch, TrainingLog, ValidationEpoch
 from translations_parser.publishers import Publisher
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="[%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -146,6 +146,7 @@ class TrainingParser:
             raise Exception("The parser already ran.")
         logs_iter = self._iter_log_entries()
 
+        logger.info("Reading logs stream.")
         if self.skip_marian_context:
             headers, text = next(logs_iter)
         else:
@@ -154,7 +155,7 @@ class TrainingParser:
             while ("marian",) not in headers:
                 headers, text = next(logs_iter)
 
-            # Read Marian runtime logs
+            logger.debug("Reading Marian version.")
             _, version, self.version_hash, self.release_date, *_ = text.split()
             self.version = version.rstrip(";")
             major, minor = map(int, version.lstrip("v").split(".")[:2])
@@ -163,7 +164,7 @@ class TrainingParser:
                     f"Parsing logs from a newer version of Marian ({major}.{minor} > {MARIAN_MAJOR}.{MARIAN_MINOR})"
                 )
 
-            # Read Marian execution description on the next lines
+            logger.debug("Reading Marian run description.")
             desc = []
             for headers, text in logs_iter:
                 if ("marian",) not in headers:
@@ -172,6 +173,7 @@ class TrainingParser:
             self.description = " ".join(desc)
 
             # Try to parse all following config lines as YAML
+            logger.debug("Reading Marian configuration.")
             config_yaml = ""
             while ("config",) in headers:
                 if "Model is being created" in text:

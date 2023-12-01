@@ -37,7 +37,7 @@ $ parse_tc_logs -i samples/<log_file>
 
 Simulate reading logs from a process:
 ```sh
-./samples/simulate_process.py | parse_tc_logs -s
+./samples/simulate_process.py | parse_tc_logs -s --verbose
 ```
 
 Publish data to Weight & Biases:

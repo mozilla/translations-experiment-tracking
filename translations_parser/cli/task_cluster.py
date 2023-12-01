@@ -1,9 +1,10 @@
 import argparse
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from translations_parser.parser import TrainingParser
+from translations_parser.parser import TrainingParser, logger
 from translations_parser.publishers import CSVExport, WandB
 
 
@@ -51,6 +52,14 @@ def get_args():
         help="Use a custom name for the Weight & Biases run.",
         default=None,
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        help="Print debug messages.",
+        action="store_const",
+        dest="loglevel",
+        const=logging.DEBUG,
+    )
     return parser.parse_args()
 
 
@@ -74,6 +83,10 @@ def task_cluster_log_filter(headers):
 
 def main():
     args = get_args()
+
+    if args.loglevel:
+        logger.setLevel(args.loglevel)
+
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if args.from_stream:
         lines = sys.stdin
