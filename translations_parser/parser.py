@@ -11,7 +11,7 @@ from translations_parser.data import TrainingEpoch, TrainingLog, ValidationEpoch
 from translations_parser.publishers import Publisher
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="[%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ class TrainingParser:
                     publisher.handle_validation(validation_epoch)
                 except Exception as e:
                     logger.error(f"Error publishing validation epoch using {publisher.__class__.__name__}: {e}")
-            del entry
+            del self._validation_entries[(epoch, up)]
             return validation_epoch
 
     def _iter_log_entries(self):
