@@ -1,6 +1,6 @@
 import csv
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from pathlib import Path
 
 import wandb
@@ -15,11 +15,25 @@ logger = logging.getLogger(__name__)
 
 
 class Publisher(ABC):
-    @abstractmethod
-    def publish(log: TrainingLog):
+    """
+    Generic mixin to publish parsed data.
+    Either the `handle_*` methods can be overriden for real time publication or
+    the `publish` method with all results (including run date, configuration…).
+    """
+
+    def open(self, parser) -> None:
         ...
 
-    def close(self):
+    def handle_training(self, training: TrainingEpoch) -> None:
+        ...
+
+    def handle_validation(self, validation: ValidationEpoch) -> None:
+        ...
+
+    def publish(self, log: TrainingLog) -> None:
+        ...
+
+    def close(self) -> None:
         ...
 
 
@@ -58,33 +72,36 @@ class WandB(Publisher):
         self.artifacts = artifacts
         self.artifacts_name = artifacts_name
         self.extra_kwargs = extra_kwargs
+        self.parser = None
 
-    def publish(self, training_log):
-        # Weight & Biases requires to publish data ordered by epoch
-        data = sorted([*training_log.training, *training_log.validation], key=lambda epoch: epoch.up)
-        if not data:
-            logger.warning("No data to push, skipping.")
-            return
-
-        config = training_log.configuration
+    def open(self, parser):
+        self.parser = parser
+        config = parser.config
         config.update(self.extra_kwargs.pop("config", {}))
-
-        # Start a W&B run and publish data for training and validation jobs
+        # Start a W&B run
         self.wandb = wandb.init(
             project=self.project,
             config=config,
             **self.extra_kwargs,
         )
-        for d in data:
-            epoch = vars(d)
-            step = epoch.pop("up")
-            for key, val in epoch.items():
-                wandb.log(step=step, data={key: val})
 
+    def generic_log(self, data):
+        epoch = vars(data)
+        step = epoch.pop("up")
+        for key, val in epoch.items():
+            wandb.log(step=step, data={key: val})
+
+    def handle_training(self, training):
+        self.generic_log(training)
+
+    def handle_validation(self, validation):
+        self.generic_log(validation)
+
+    def close(self):
         # Store runtime logs as the main log artifact
         # This will be overwritten in case an unhandled exception occurs
         with (Path(self.wandb.dir) / "output.log").open("w") as f:
-            f.write(training_log.logs_str)
+            f.write(self.parser.logs_str)
 
         # Publish artifacts
         if self.artifacts:
@@ -92,5 +109,4 @@ class WandB(Publisher):
             artifact.add_dir(local_path=self.artifacts)
             self.wandb.log_artifact(artifact)
 
-    def close(self):
         self.wandb.finish()

@@ -34,7 +34,3 @@ class TrainingLog:
     # Dict of log lines indexed by their header (e.g. marian, data, memory)
     logs: dict
     run_date: datetime
-
-    @property
-    def logs_str(self):
-        return "\n".join("".join(f"[{key}] {val}\n" for val in values) for key, values in self.logs.items())
