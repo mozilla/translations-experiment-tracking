@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from translations_parser.parser import TrainingParser
@@ -27,6 +28,12 @@ def get_args():
         default=None,
     )
     parser.add_argument(
+        "--wandb-artifacts",
+        help="Directory containing training artifacts to publish on Weight & Biases.",
+        type=Path,
+        default=None,
+    )
+    parser.add_argument(
         "--wandb-group",
         help="Add the training run to a Weight & Biases group e.g. by language pair or experiment.",
         default=None,
@@ -39,6 +46,24 @@ def get_args():
     return parser.parse_args()
 
 
+def task_cluster_log_filter(headers):
+    """
+    Check TC log contain a valid task header ('task', <timestamp>)
+    """
+    for values in headers:
+        if not values or len(values) != 2:
+            continue
+        base, timestamp = values
+        if base != "task":
+            continue
+        try:
+            datetime.fromisoformat(timestamp.rstrip("Z"))
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def main():
     args = get_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -49,6 +74,7 @@ def main():
         publishers.append(
             WandB(
                 project=args.wandb_project,
+                artifacts=args.wandb_artifacts,
                 group=args.wandb_group,
                 tags=["cli"],
                 name=args.wandb_run_name,
@@ -57,5 +83,10 @@ def main():
                 },
             )
         )
-    parser = TrainingParser(lines, publishers=publishers)
+
+    parser = TrainingParser(
+        lines,
+        publishers=publishers,
+        log_filter=task_cluster_log_filter,
+    )
     parser.run()

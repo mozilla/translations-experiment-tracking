@@ -28,7 +28,7 @@ class CSVExport(Publisher):
         assert output_dir.is_dir(), "Output must be a valid directory"
         self.output_dir = output_dir
 
-    def write_data(output, entries, dataclass):
+    def write_data(self, output, entries, dataclass):
         if not entries:
             logger.warning(f"No {dataclass.__name__} entry, skipping.")
         with open(output, "w") as f:
@@ -52,8 +52,11 @@ class CSVExport(Publisher):
 
 
 class WandB(Publisher):
-    def __init__(self, project, **extra_kwargs):
+    def __init__(self, project, artifacts=None, artifacts_name="logs", **extra_kwargs):
         self.project = project
+        # Optional path to a directory containing training artifacts
+        self.artifacts = artifacts
+        self.artifacts_name = artifacts_name
         self.extra_kwargs = extra_kwargs
 
     def publish(self, training_log):
@@ -82,6 +85,12 @@ class WandB(Publisher):
         # This will be overwritten in case an unhandled exception occurs
         with (Path(self.wandb.dir) / "output.log").open("w") as f:
             f.write(training_log.logs_str)
+
+        # Publish artifacts
+        if self.artifacts:
+            artifact = wandb.Artifact(name=self.artifacts_name, type=self.artifacts_name)
+            artifact.add_dir(local_path=self.artifacts)
+            self.wandb.log_artifact(artifact)
 
     def close(self):
         self.wandb.finish()
