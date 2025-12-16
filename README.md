@@ -1,3 +1,5 @@
+This was moved to the main [mozilla/translations](https://github.com/mozilla/translations) repo.
+
 # translations-experiment-tracking
 
 Track and extract data from the training system of Firefox Translations.
